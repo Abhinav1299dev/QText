@@ -25,6 +25,8 @@ import {
   X,
   Zap,
   UploadCloud,
+  Moon,
+  Sun,
   type LucideIcon,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
@@ -95,6 +97,17 @@ function App() {
   const [chatInput, setChatInput] = useState('');
   const [isHost, setIsHost] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    const saved = localStorage.getItem('meshdrop-theme');
+    return saved === 'light' ? 'light' : 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('meshdrop-theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => t === 'dark' ? 'light' : 'dark');
 
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -334,6 +347,8 @@ function App() {
               <button className="secondary-button compact" onClick={() => { setAuthMode('signin'); setAuthError(''); setShowAuthModal(true); }}><LogIn size={14} /> Sign in</button>
             )}
             <div className="divider" />
+            <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
+            <div className="divider" />
             <button className="icon-button" aria-label="More options"><MoreHorizontal size={20} /></button>
           </div>
         </header>
@@ -498,6 +513,8 @@ function App() {
           )}
           <div className="divider" />
           <button className="secondary-button compact" onClick={copyLink}>{copied ? <Check size={14} /> : <Link2 size={14} />} {copied ? 'Copied' : 'Copy link'}</button>
+          <div className="divider" />
+          <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle theme">{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
           <div className="divider" />
           <button className="leave-button" onClick={handleLeaveRoom}><X size={16} /> Leave</button>
         </div>
