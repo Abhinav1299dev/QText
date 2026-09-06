@@ -76,21 +76,24 @@ export type RoomHistoryEntry = {
 
 const TICKET_TTL_MS = 10 * 60 * 1000;
 const STORAGE_PREFIX = 'meshdrop-pin-';
-const CHUNK_SIZE = 256 * 1024;
+const CHUNK_SIZE = 128 * 1024; // 128 KB — keeps base64 payload under ~175 KB to avoid Supabase row size limits
 const MAX_MESSAGE_LENGTH = 1000;
 const PRESENCE_INTERVAL_MS = 5000;
 const PRESENCE_TIMEOUT_MS = 15000;
 
 // --- Supabase client --------------------------------------------------------
+//
+// The anon key is public-safe — it's designed to be exposed in the browser.
+// RLS policies protect the data, not the key. We hardcode fallback values so
+// the app works even when .env is missing (e.g. GitHub Pages builds where
+// .env is gitignored). Environment variables take priority when available.
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://vzagkaawgkagkbyllufq.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ6YWdrYWF3Z2thZ2tieWxsdWZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0MTc0NjksImV4cCI6MjEwMzk5MzQ2OX0.N1cdhY47TdkZpZ4T86Twl-LRiPQQesmswXFArpF47h8';
 
-const supabase = supabaseUrl && supabaseAnonKey && /^https?:\/\//i.test(supabaseUrl)
-  ? createClient(supabaseUrl, supabaseAnonKey, {
-      realtime: { params: { eventsPerSecond: 20 } },
-    })
-  : null;
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  realtime: { params: { eventsPerSecond: 20 } },
+});
 
 // --- Utilities --------------------------------------------------------------
 
@@ -161,7 +164,7 @@ let callbacksRef: RoomCallbacks | null = null;
 // --- Public API: Room management --------------------------------------------
 
 export function isSupabaseConfigured(): boolean {
-  return supabase !== null;
+  return true;
 }
 
 // --- Auth --------------------------------------------------------------------
@@ -638,12 +641,12 @@ async function uploadFileChunks(pin: string, fileId: string, chunks: ArrayBuffer
       const maxRetries = 5;
 
       while (retries < maxRetries) {
-        const { error } = await supabase.from('transfer_chunks').insert({
+        const { error } = await supabase.from('transfer_chunks').upsert({
           pin,
           chunk_index: i,
           data: b64,
           file_id: fileId,
-        });
+        }, { onConflict: 'pin,file_id,chunk_index' });
         if (!error) break;
         retries++;
         if (retries >= maxRetries) throw new Error(`Failed to upload chunk ${i}: ${error.message}`);
@@ -693,6 +696,8 @@ export async function downloadFile(offer: FileOffer): Promise<string> {
         .eq('pin', currentPin!)
         .eq('file_id', offer.file_id)
         .eq('chunk_index', i)
+        .order('id', { ascending: false })
+        .limit(1)
         .maybeSingle();
 
       if (error) throw error;
@@ -724,6 +729,9 @@ export async function downloadFile(offer: FileOffer): Promise<string> {
 
   // Mark as done
   await supabase.from('file_offers').update({ status: 'done' }).eq('file_id', offer.file_id).eq('pin', currentPin!);
+
+  // Clean up chunks to free database space
+  void supabase.from('transfer_chunks').delete().eq('pin', currentPin!).eq('file_id', offer.file_id);
 
   return URL.createObjectURL(new Blob(receivedChunks, { type: offer.file_type }));
 }
